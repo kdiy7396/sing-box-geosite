@@ -1,5 +1,7 @@
 # sing-box-geosite
 
+新增google ip_cidr 详见main.py
+
 在links.txt添加规则集，自动生成 sing-box Source Format。fork后自己添加想要转换的规则集。
 
 仓库 Settings ----> Actions ----> General ----> Workflow permissions ----> Read and write permissions 勾选上
