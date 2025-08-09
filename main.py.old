@@ -173,6 +173,38 @@ def parse_list_file(link, output_directory):
 with open("../links.txt", 'r') as links_file:
     links = links_file.read().splitlines()
 
+# ========== 新增 Google IP 段处理逻辑 ==========
+def generate_google_rules(output_directory="./"):
+    url = "https://www.gstatic.com/ipranges/goog.json"
+    print(f"Fetching {url} ...")
+    resp = requests.get(url)
+    resp.raise_for_status()
+    data = resp.json()
+
+    ip_list = []
+    for p in data.get("prefixes", []):
+        cidr = p.get("ipv4Prefix") or p.get("ipv6Prefix")
+        if cidr:
+            ip_list.append(cidr)
+
+    ruleset = {"version": 3, "rules": [{"ip_cidr": ip_list}]}
+
+    os.makedirs(output_directory, exist_ok=True)
+    file_name = os.path.join(output_directory, "goog.json")
+    with open(file_name, "w", encoding="utf-8") as f:
+        json.dump(ruleset, f, ensure_ascii=False, indent=2)
+
+    srs_path = file_name.replace(".json", ".srs")
+    os.system(f"sing-box rule-set compile --output {srs_path} {file_name}")
+    print(f"Generated: {file_name} and {srs_path}")
+    return file_name
+
+# =============================================
+
+if __name__ == "__main__":
+    with open("../links.txt", 'r') as links_file:
+        links = links_file.read().splitlines()
+
 links = [l for l in links if l.strip() and not l.strip().startswith("#")]
 
 output_dir = "./"
