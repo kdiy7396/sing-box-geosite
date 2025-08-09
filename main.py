@@ -190,7 +190,7 @@ def generate_google_rules(output_directory="./"):
     ruleset = {"version": 3, "rules": [{"ip_cidr": ip_list}]}
 
     os.makedirs(output_directory, exist_ok=True)
-    file_name = os.path.join(output_directory, "goog.json")
+    file_name = os.path.join(output_directory, "google.json")
     with open(file_name, "w", encoding="utf-8") as f:
         json.dump(ruleset, f, ensure_ascii=False, indent=2)
 
