@@ -45,9 +45,7 @@ jobs:
       run: |
         sing-box rule-set convert --type adguard --output ./rule/adservers.srs ./rule/adservers.txt
     - name: Run script
-      run: |
-        python ../googleipcidr.py
-        python ../main.py
+      run:  python ../main.py
       working-directory: ./rule/
     - name: Commit and push config.json
       run: |
