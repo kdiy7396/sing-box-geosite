@@ -21,11 +21,13 @@ jobs:
           
     - name: "Setup sing-box"
       run: |
-          LATEST_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-          DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${LATEST_TAG}/sing-box-${LATEST_TAG#v}-linux-amd64.tar.gz"
-          curl -Lo sing-box.tar.gz "$DOWNLOAD_URL"
+          curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest > release_info.json
+          LATEST_URL=$(jq -r '.assets[] | select(.name | contains("linux-amd64.tar.gz")) | .browser_download_url' release_info.json | head -n 1)
+          echo "Downloading from: $LATEST_URL"
+          curl -Lo sing-box.tar.gz "$LATEST_URL"
           tar -xzf sing-box.tar.gz
-          sudo mv sing-box-*/sing-box /usr/local/bin/sing-box
+          sudo mv sing-box-*/sing-box /usr/local/bin/
+          rm release_info.json sing-box.tar.gz
           sing-box version
           
     - name: Set up Python3
