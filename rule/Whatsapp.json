@@ -2,12 +2,11 @@
   "rules": [
     {
       "domain": [
-        "graph.facebook.com"
-      ]
-    },
-    {
-      "domain_keyword": [
-        "whatsapp"
+        "bintray.com",
+        "graph.facebook.com",
+        "whatsapp.biz",
+        "whatsapp.com",
+        "whatsapp.net"
       ]
     },
     {
@@ -16,6 +15,11 @@
         "whatsapp.biz",
         "whatsapp.com",
         "whatsapp.net"
+      ]
+    },
+    {
+      "domain_keyword": [
+        "whatsapp"
       ]
     },
     {
@@ -34,5 +38,5 @@
       ]
     }
   ],
-  "version": 2
+  "version": 3
 }

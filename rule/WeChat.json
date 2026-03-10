@@ -2,16 +2,68 @@
   "rules": [
     {
       "domain": [
+        "analytics.map.qq.com",
         "apd-pcdnwxlogin.teg.tencent-cloud.net",
+        "apis.map.qq.com",
         "btrace.qq.com",
+        "cc.map.qq.com",
         "dldir1.qq.com",
+        "indoorroad.map.qq.com",
+        "iot-tencent.com",
+        "lbs.gtimg.com",
+        "lbs.map.qq.com",
+        "map.qq.com",
+        "nlp.map.qq.com",
+        "qlogo.cn",
+        "qpic.cn",
+        "rttgps.map.qq.com",
+        "servicewechat.com",
         "slife.xy-asia.com",
         "soup.v.qq.com",
+        "ue.indoorloc.map.qq.com",
+        "up-hl.3g.qq.com",
         "vweixinf.tc.qq.com",
+        "vweixinthumb.tc.qq.com",
+        "wechat.com",
+        "wechatos.net",
+        "weixin.com",
+        "weixin.qq.com",
         "weixin110.qq.com",
         "wup.imtt.qq.com",
+        "wx.gtimg.com",
+        "wx.qq.com",
         "wx.tenpay.com",
-        "wxapp.tc.qq.com"
+        "wxapp.tc.qq.com",
+        "wxs.qq.com",
+        "yun-hl.3g.qq.com"
+      ]
+    },
+    {
+      "domain_suffix": [
+        "analytics.map.qq.com",
+        "apis.map.qq.com",
+        "cc.map.qq.com",
+        "indoorroad.map.qq.com",
+        "iot-tencent.com",
+        "lbs.gtimg.com",
+        "lbs.map.qq.com",
+        "map.qq.com",
+        "nlp.map.qq.com",
+        "qlogo.cn",
+        "qpic.cn",
+        "rttgps.map.qq.com",
+        "servicewechat.com",
+        "ue.indoorloc.map.qq.com",
+        "up-hl.3g.qq.com",
+        "vweixinthumb.tc.qq.com",
+        "wechat.com",
+        "wechatos.net",
+        "weixin.com",
+        "weixin.qq.com",
+        "wx.gtimg.com",
+        "wx.qq.com",
+        "wxs.qq.com",
+        "yun-hl.3g.qq.com"
       ]
     },
     {
@@ -252,34 +304,6 @@
       ]
     },
     {
-      "domain_suffix": [
-        "analytics.map.qq.com",
-        "apis.map.qq.com",
-        "cc.map.qq.com",
-        "indoorroad.map.qq.com",
-        "iot-tencent.com",
-        "lbs.gtimg.com",
-        "lbs.map.qq.com",
-        "map.qq.com",
-        "nlp.map.qq.com",
-        "qlogo.cn",
-        "qpic.cn",
-        "rttgps.map.qq.com",
-        "servicewechat.com",
-        "ue.indoorloc.map.qq.com",
-        "up-hl.3g.qq.com",
-        "vweixinthumb.tc.qq.com",
-        "wechat.com",
-        "wechatos.net",
-        "weixin.com",
-        "weixin.qq.com",
-        "wx.gtimg.com",
-        "wx.qq.com",
-        "wxs.qq.com",
-        "yun-hl.3g.qq.com"
-      ]
-    },
-    {
       "ip_cidr": [
         "111.30.160.0/20",
         "112.53.11.0/24",
@@ -356,5 +380,5 @@
       ]
     }
   ],
-  "version": 2
+  "version": 3
 }
