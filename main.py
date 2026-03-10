@@ -165,8 +165,10 @@ def process_link(link, output_dir):
         return None
 
 if __name__ == "__main__":
-    LINKS_FILE = "links.txt"
-    OUTPUT_DIR = "./rule"
+    current_script_path = os.path.abspath(__file__)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    LINKS_FILE = os.path.join(base_dir, "links.txt")
+    OUTPUT_DIR = os.path.join(base_dir, "rule")
     
     if not os.path.exists(LINKS_FILE):
         print("links.txt not found.")
