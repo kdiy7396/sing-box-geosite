@@ -216,3 +216,12 @@ if __name__ == "__main__":
     generate_google_rules(OUTPUT_DIR)
     
     print("\nAll tasks completed.")
+
+    from datetime import datetime
+
+# 强制生成一个变化文件，触发 git commit
+with open("rule/last_update.txt", "w", encoding="utf-8") as f:
+    f.write(f"Last build: {datetime.utcnow().isoformat()} UTC\n")
+    f.write(f"Script version: modified for domain_suffix fix - {datetime.utcnow().strftime('%Y-%m-%d')}\n")
+
+print("Forced update marker created: rule/last_update.txt")
