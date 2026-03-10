@@ -7,31 +7,37 @@ on:
   schedule:
     - cron: '0 12 * * *'
 
+permissions:
+  contents: write
+  
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+          
     - name: "Setup sing-box"
-    #  env:
-    #    SING_BOX_VERSION: "latest"
       run: |
-          set -Eeuo pipefail
-          # 获取 latest tag
-          LATEST_TAG=$(curl -s -L -o /dev/null -w %{url_effective} https://github.com/SagerNet/sing-box/releases/latest | sed 's|.*/tag/||')
-          SING_BOX_DEB_URL="https://github.com/SagerNet/sing-box/releases/download/${LATEST_TAG}/sing-box_${LATEST_TAG#v}_linux_amd64.deb"
-          echo "Downloading from: $SING_BOX_DEB_URL"
-          wget -O sing-box.deb "$SING_BOX_DEB_URL"
-          sudo dpkg -i sing-box.deb
+          LATEST_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+          DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${LATEST_TAG}/sing-box-${LATEST_TAG#v}-linux-amd64.tar.gz"
+          curl -Lo sing-box.tar.gz "$DOWNLOAD_URL"
+          tar -xzf sing-box.tar.gz
+          sudo mv sing-box-*/sing-box /usr/local/bin/sing-box
+          sing-box version
+          
     - name: Set up Python3
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: 3.x
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pandas requests pyyaml
+        
     - name: Download content
       run: |
         URL="https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt"
@@ -45,25 +51,29 @@ jobs:
           echo "Download failed."
           exit 1
         fi
+        
     - name: Convert AdGuard DNS Filter to sing-box rule set
       run: |
         sing-box rule-set convert --type adguard --output ./rule/adservers.srs ./rule/adservers.txt
+        
     - name: Run script
       run:  python ../main.py
       working-directory: ./rule/
-    - name: Commit and push config.json
+      
+    - name: Git Commit and Push
       run: |
-        git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
-        git add ./rule/*.json
-        git add ./rule/*.srs
-        git add ./rule/*.txt
-
-        # 检查是否有文件被修改
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-          exit 0
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        
+        # 1. 强制添加所有目标文件
+        git add -A rule/
+        
+        # 2. 检查是否有文件在暂存区（包括内容改变或二进制重写）
+        # git status --porcelain 只要有任何不同（包括时间戳导致的二进制差异）都会输出内容
+        if [ -n "$(git status --porcelain rule/)" ]; then
+          echo "Changes detected in rule folder. Updating..."
+          git commit -m "auto: restore/update rule sets $(date +'%Y-%m-%d %H:%M')"
+          git push origin main
         else
-          git commit -m "Update rules"
-          git push
+          echo "Everything is up to date."
         fi
