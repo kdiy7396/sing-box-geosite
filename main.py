@@ -9,231 +9,210 @@ import ipaddress
 from io import StringIO
 
 # 映射字典
-MAP_DICT = {'DOMAIN-SUFFIX': 'domain_suffix', 'HOST-SUFFIX': 'domain_suffix', 'host-suffix': 'domain_suffix', 'DOMAIN': 'domain', 'HOST': 'domain', 'host': 'domain',
-            'DOMAIN-KEYWORD':'domain_keyword', 'HOST-KEYWORD': 'domain_keyword', 'host-keyword': 'domain_keyword', 'IP-CIDR': 'ip_cidr',
-            'ip-cidr': 'ip_cidr', 'IP-CIDR6': 'ip_cidr', 
-            'IP6-CIDR': 'ip_cidr','SRC-IP-CIDR': 'source_ip_cidr', 'GEOIP': 'geoip', 'DST-PORT': 'port',
-            'SRC-PORT': 'source_port', "URL-REGEX": "domain_regex", "DOMAIN-REGEX": "domain_regex"}
-
-def read_yaml_from_url(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    yaml_data = yaml.safe_load(response.text)
-    return yaml_data
-
-def read_list_from_url(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        csv_data = StringIO(response.text)
-        df = pd.read_csv(csv_data, header=None, names=['pattern', 'address', 'other', 'other2', 'other3'], on_bad_lines='skip')
-    else:
-        return None
-    filtered_rows = []
-    rules = []
-    # 处理逻辑规则
-    if 'AND' in df['pattern'].values:
-        and_rows = df[df['pattern'].str.contains('AND', na=False)]
-        for _, row in and_rows.iterrows():
-            rule = {
-                "type": "logical",
-                "mode": "and",
-                "rules": []
-            }
-            pattern = ",".join(row.values.astype(str))
-            components = re.findall(r'\((.*?)\)', pattern)
-            for component in components:
-                for keyword in MAP_DICT.keys():
-                    if keyword in component:
-                        match = re.search(f'{keyword},(.*)', component)
-                        if match:
-                            value = match.group(1)
-                            rule["rules"].append({
-                                MAP_DICT[keyword]: value
-                            })
-            rules.append(rule)
-    for index, row in df.iterrows():
-        if 'AND' not in row['pattern']:
-            filtered_rows.append(row)
-    df_filtered = pd.DataFrame(filtered_rows, columns=['pattern', 'address', 'other', 'other2', 'other3'])
-    return df_filtered, rules
+MAP_DICT = {
+    'DOMAIN-SUFFIX': 'domain_suffix', 'HOST-SUFFIX': 'domain_suffix', 'host-suffix': 'domain_suffix',
+    'DOMAIN': 'domain', 'HOST': 'domain', 'host': 'domain',
+    'DOMAIN-KEYWORD': 'domain_keyword', 'HOST-KEYWORD': 'domain_keyword', 'host-keyword': 'domain_keyword',
+    'IP-CIDR': 'ip_cidr', 'ip-cidr': 'ip_cidr', 'IP-CIDR6': 'ip_cidr', 'IP6-CIDR': 'ip_cidr',
+    'SRC-IP-CIDR': 'source_ip_cidr', 'GEOIP': 'geoip',
+    'DST-PORT': 'port', 'SRC-PORT': 'source_port',
+    "URL-REGEX": "domain_regex", "DOMAIN-REGEX": "domain_regex"
+}
 
 def is_ipv4_or_ipv6(address):
+    """判断是否为 IP 地址（处理带 CIDR 的情况）"""
     try:
-        ipaddress.IPv4Network(address)
-        return 'ipv4'
+        ip_part = address.split('/')[0]
+        ipaddress.ip_address(ip_part)
+        return True
     except ValueError:
+        return False
+
+def fetch_url(url):
+    """通用的请求函数，带超时和 User-Agent"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        print(f"Error fetching {url}: {e}")
+        return None
+
+def parse_source(link):
+    """解析订阅源，支持 YAML, TXT, CSV 逻辑格式"""
+    content = fetch_url(link)
+    if not content:
+        return None, []
+
+    rows = []
+    logic_rules = []
+
+    # 1. 尝试作为 YAML 处理 (Clash Rule Provider 格式)
+    if link.endswith('.yaml') or 'payload' in content:
         try:
-            ipaddress.IPv6Network(address)
-            return 'ipv6'
-        except ValueError:
+            yaml_data = yaml.safe_load(content)
+            items = yaml_data.get('payload', []) if isinstance(yaml_data, dict) else yaml_data
+            if isinstance(items, list):
+                for item in items:
+                    item_str = str(item).strip("'\" ")
+                    if ',' in item_str:
+                        parts = item_str.split(',')
+                        rows.append({'pattern': parts[0].strip(), 'address': parts[1].strip()})
+                    else:
+                        # 自动识别纯列表格式
+                        pattern = 'IP-CIDR' if is_ipv4_or_ipv6(item_str) else ('DOMAIN-SUFFIX' if item_str.startswith(('.', '+')) else 'DOMAIN')
+                        rows.append({'pattern': pattern, 'address': item_str.lstrip('.+')})
+                return pd.DataFrame(rows), []
+        except:
+            pass
+
+    # 2. 尝试作为 CSV/普通规则行处理
+    csv_data = StringIO(content)
+    try:
+        df = pd.read_csv(csv_data, header=None, names=['pattern', 'address', 'other'], on_bad_lines='skip', engine='python')
+        
+        # 处理逻辑规则 (AND)
+        and_rows = df[df['pattern'].str.contains('AND', na=False)]
+        for _, row in and_rows.iterrows():
+            rule = {"type": "logical", "mode": "and", "rules": []}
+            components = re.findall(r'\((.*?)\)', str(row.values))
+            for comp in components:
+                for k, v in MAP_DICT.items():
+                    if k in comp:
+                        val = comp.split(',')[-1].strip("'\" ")
+                        rule["rules"].append({v: val})
+            if rule["rules"]:
+                logic_rules.append(rule)
+
+        # 过滤掉 AND 行并提取普通规则
+        df_clean = df[~df['pattern'].str.contains('AND', na=False)].dropna(subset=['pattern', 'address'])
+        for _, row in df_clean.iterrows():
+            rows.append({'pattern': str(row['pattern']).strip(), 'address': str(row['address']).strip()})
+    except Exception as e:
+        print(f"CSV Parsing fallback for {link}: {e}")
+
+    return pd.DataFrame(rows), logic_rules
+
+def process_link(link, output_dir):
+    """核心处理逻辑"""
+    try:
+        df, logic_rules = parse_source(link)
+        if df is None or df.empty:
             return None
 
-def parse_and_convert_to_dataframe(link):
-    rules = []
-    # 根据链接扩展名分情况处理
-    if link.endswith('.yaml') or link.endswith('.txt'):
-        try:
-            yaml_data = read_yaml_from_url(link)
-            rows = []
-            if not isinstance(yaml_data, str):
-                items = yaml_data.get('payload', [])
+        # 统一映射 Pattern
+        df['pattern'] = df['pattern'].str.upper().replace(MAP_DICT)
+        df = df[df['pattern'].isin(MAP_DICT.values())].drop_duplicates()
+
+        # 初始化 sing-box 规则集结构
+        result_rules = {"version": 1, "rules": []}
+        
+        domain_set = set()
+        suffix_set = set()
+        other_grouped = {}
+
+        # 处理不同类型的规则
+        for pattern, group in df.groupby('pattern'):
+            addresses = set(group['address'].str.strip("'\" ").str.lstrip('.+'))
+            
+            if pattern == 'domain_suffix':
+                # 为确保“域名+子域名”都生效：
+                # 1. 放入 domain_suffix 匹配所有子域名
+                # 2. 放入 domain 匹配域名本身
+                suffix_set.update(addresses)
+                domain_set.update(addresses)
+            elif pattern == 'domain':
+                domain_set.update(addresses)
             else:
-                lines = yaml_data.splitlines()
-                line_content = lines[0]
-                items = line_content.split()
-            for item in items:
-                address = item.strip("'")
-                if ',' not in item:
-                    if is_ipv4_or_ipv6(item):
-                        pattern = 'IP-CIDR'
-                    else:
-                        if address.startswith('+') or address.startswith('.'):
-                            pattern = 'DOMAIN-SUFFIX'
-                            address = address[1:]
-                            if address.startswith('.'):
-                                address = address[1:]
-                        else:
-                            pattern = 'DOMAIN'
-                else:
-                    pattern, address = item.split(',', 1)
-                if ',' in address:
-                    address = address.split(',', 1)[0]
-                rows.append({'pattern': pattern.strip(), 'address': address.strip(), 'other': None})
-            df = pd.DataFrame(rows, columns=['pattern', 'address', 'other'])
-        except:
-            df, rules = read_list_from_url(link)
-    else:
-        df, rules = read_list_from_url(link)
-    return df, rules
+                other_grouped[pattern] = sorted(list(addresses))
 
-# 对字典进行排序，含list of dict
-def sort_dict(obj):
-    if isinstance(obj, dict):
-        return {k: sort_dict(obj[k]) for k in sorted(obj)}
-    elif isinstance(obj, list) and all(isinstance(elem, dict) for elem in obj):
-        return sorted([sort_dict(x) for x in obj], key=lambda d: sorted(d.keys())[0])
-    elif isinstance(obj, list):
-        return sorted(sort_dict(x) for x in obj)
-    else:
-        return obj
+        # 组装结果
+        final_rule_list = []
+        if domain_set:
+            final_rule_list.append({"domain": sorted(list(domain_set))})
+        if suffix_set:
+            final_rule_list.append({"domain_suffix": sorted(list(suffix_set))})
+        
+        for p, addr_list in other_grouped.items():
+            final_rule_list.append({p: addr_list})
 
-def parse_list_file(link, output_directory):
-    try:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            results= list(executor.map(parse_and_convert_to_dataframe, [link]))  # 使用executor.map并行处理链接, 得到(df, rules)元组的列表
-            dfs = [df for df, rules in results]   # 提取df的内容
-            rules_list = [rules for df, rules in results]  # 提取逻辑规则rules的内容
-            df = pd.concat(dfs, ignore_index=True)  # 拼接为一个DataFrame
-        df = df[~df['pattern'].str.contains('#')].reset_index(drop=True)  # 删除pattern中包含#号的行
-        df = df[df['pattern'].isin(MAP_DICT.keys())].reset_index(drop=True)  # 删除不在字典中的pattern
-        df = df.drop_duplicates().reset_index(drop=True)  # 删除重复行
-        df['pattern'] = df['pattern'].replace(MAP_DICT)  # 替换pattern为字典中的值
-        os.makedirs(output_directory, exist_ok=True)  # 创建自定义文件夹
+        if logic_rules:
+            final_rule_list.extend(logic_rules)
 
-        result_rules = {"version": 2, "rules": []}
-        domain_entries = []
-for pattern, addresses in df.groupby('pattern')['address'].apply(list).to_dict().items():
-    cleaned_addresses = [address.strip() for address in addresses if address.strip()]
+        result_rules["rules"] = final_rule_list
 
-    if pattern == 'domain_suffix':
-        # 统一加前导 . ，变成最推荐的写法
-        suffixed = []
-        for addr in cleaned_addresses:
-            if addr and not addr.startswith('.'):
-                suffixed.append('.' + addr)
-            else:
-                suffixed.append(addr)  # 已经带点的保持原样
-        if suffixed:
-            result_rules["rules"].append({
-                "domain_suffix": list(set(suffixed))   # 去重
-            })
+        # 保存 JSON
+        file_base = os.path.basename(link).split('.')[0]
+        json_path = os.path.join(output_dir, f"{file_base}.json")
+        os.makedirs(output_dir, exist_ok=True)
 
-    elif pattern == 'domain':
-        # 可选：把纯域名也转成带点的 domain_suffix（视你的意图）
-        # domain_entries.extend(cleaned_addresses)
-        suffixed_domains = ['.' + addr for addr in cleaned_addresses if addr]
-        if suffixed_domains:
-            result_rules["rules"].append({
-                "domain_suffix": list(set(suffixed_domains))
-            })
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(result_rules, f, ensure_ascii=False, indent=2)
 
-    else:
-        if cleaned_addresses:
-            result_rules["rules"].append({
-                pattern: list(set(cleaned_addresses))
-            })
-        # 删除 'domain_entries' 中的重复值
-        domain_entries = list(set(domain_entries))
-        if domain_entries:
-            result_rules["rules"].insert(0, {'domain': domain_entries})
+        # 编译为 SRS
+        srs_path = json_path.replace(".json", ".srs")
+        status = os.system(f"sing-box rule-set compile --output \"{srs_path}\" \"{json_path}\"")
+        
+        if status == 0:
+            print(f"Successfully generated: {srs_path}")
+            return srs_path
+        else:
+            print(f"Failed to compile SRS for {file_base}")
+            return json_path
 
-        # 处理逻辑规则
-        """
-        if rules_list[0] != "[]":
-            result_rules["rules"].extend(rules_list[0])
-        """
-
-        # 使用 output_directory 拼接完整路径
-        file_name = os.path.join(output_directory, f"{os.path.basename(link).split('.')[0]}.json")
-        with open(file_name, 'w', encoding='utf-8') as output_file:
-            result_rules_str = json.dumps(sort_dict(result_rules), ensure_ascii=False, indent=2)
-            result_rules_str = result_rules_str.replace('\\\\', '\\')
-            output_file.write(result_rules_str)
-
-        srs_path = file_name.replace(".json", ".srs")
-        os.system(f"sing-box rule-set compile --output {srs_path} {file_name}")
-        return file_name
     except Exception as e:
-        print(f'获取链接出错，已跳过：{link}，原因：{str(e)}')
-        pass
+        print(f"Error processing {link}: {e}")
+        return None
 
-# 读取 links.txt 中的每个链接并生成对应的 JSON 文件
-with open("../links.txt", 'r') as links_file:
-    links = links_file.read().splitlines()
-
-# ========== 新增 Google IP 段处理逻辑 ==========
-def generate_google_rules(output_directory="./"):
+def generate_google_rules(output_dir):
+    """Google 特殊规则生成"""
     url = "https://www.gstatic.com/ipranges/goog.json"
-    print(f"Fetching {url} ...")
-    resp = requests.get(url)
-    resp.raise_for_status()
-    data = resp.json()
-
-    ip_list = []
-    for p in data.get("prefixes", []):
-        cidr = p.get("ipv4Prefix") or p.get("ipv6Prefix")
-        if cidr:
-            ip_list.append(cidr)
-
-    ruleset = {"version": 3, "rules": [{"ip_cidr": ip_list}]}
-
-    os.makedirs(output_directory, exist_ok=True)
-    file_name = os.path.join(output_directory, "google.json")
-    with open(file_name, "w", encoding="utf-8") as f:
-        json.dump(ruleset, f, ensure_ascii=False, indent=2)
-
-    srs_path = file_name.replace(".json", ".srs")
-    os.system(f"sing-box rule-set compile --output {srs_path} {file_name}")
-    print(f"Generated: {file_name} and {srs_path}")
-    return file_name
-
-# =============================================
+    print("Generating Google IP rules...")
+    content = fetch_url(url)
+    if not content: return None
+    
+    try:
+        data = json.loads(content)
+        ips = []
+        for p in data.get("prefixes", []):
+            cidr = p.get("ipv4Prefix") or p.get("ipv6Prefix")
+            if cidr: ips.append(cidr)
+        
+        ruleset = {"version": 1, "rules": [{"ip_cidr": sorted(list(set(ips)))}]}
+        json_path = os.path.join(output_dir, "google.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(ruleset, f, indent=2)
+        
+        srs_path = json_path.replace(".json", ".srs")
+        os.system(f"sing-box rule-set compile --output \"{srs_path}\" \"{json_path}\"")
+        return srs_path
+    except:
+        return None
 
 if __name__ == "__main__":
-    with open("../links.txt", 'r') as links_file:
-        links = links_file.read().splitlines()
+    # 配置路径
+    LINKS_FILE = "../links.txt"  # 请确保该文件存在
+    OUTPUT_DIR = "./rules"
+    
+    if not os.path.exists(LINKS_FILE):
+        # 兼容当前目录
+        LINKS_FILE = "links.txt"
+        if not os.path.exists(LINKS_FILE):
+            print("Error: links.txt not found.")
+            exit(1)
 
-links = [l for l in links if l.strip() and not l.strip().startswith("#")]
+    with open(LINKS_FILE, 'r', encoding='utf-8') as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-output_dir = "./"
-result_file_names = []
+    print(f"Task started: {len(urls)} sources to process.")
 
-for link in links:
-    result_file_name = parse_list_file(link, output_directory=output_dir)
-    result_file_names.append(result_file_name)
+    # 并发处理
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(process_link, url, OUTPUT_DIR) for url in urls]
+        concurrent.futures.wait(futures)
 
-# 打印生成的文件名
-# for file_name in result_file_names:
-    # print(file_name)
+    # 额外处理 Google 规则
+    generate_google_rules(OUTPUT_DIR)
+    
+    print("\nAll tasks completed.")
