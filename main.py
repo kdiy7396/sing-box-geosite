@@ -134,16 +134,36 @@ def parse_list_file(link, output_directory):
 
         result_rules = {"version": 2, "rules": []}
         domain_entries = []
-        for pattern, addresses in df.groupby('pattern')['address'].apply(list).to_dict().items():
-            if pattern == 'domain_suffix':
-                rule_entry = {pattern: [address.strip() for address in addresses]}
-                result_rules["rules"].append(rule_entry)
-                # domain_entries.extend([address.strip() for address in addresses])  # 1.9以下的版本需要额外处理 domain_suffix
-            elif pattern == 'domain':
-                domain_entries.extend([address.strip() for address in addresses])
+for pattern, addresses in df.groupby('pattern')['address'].apply(list).to_dict().items():
+    cleaned_addresses = [address.strip() for address in addresses if address.strip()]
+
+    if pattern == 'domain_suffix':
+        # 统一加前导 . ，变成最推荐的写法
+        suffixed = []
+        for addr in cleaned_addresses:
+            if addr and not addr.startswith('.'):
+                suffixed.append('.' + addr)
             else:
-                rule_entry = {pattern: [address.strip() for address in addresses]}
-                result_rules["rules"].append(rule_entry)
+                suffixed.append(addr)  # 已经带点的保持原样
+        if suffixed:
+            result_rules["rules"].append({
+                "domain_suffix": list(set(suffixed))   # 去重
+            })
+
+    elif pattern == 'domain':
+        # 可选：把纯域名也转成带点的 domain_suffix（视你的意图）
+        # domain_entries.extend(cleaned_addresses)
+        suffixed_domains = ['.' + addr for addr in cleaned_addresses if addr]
+        if suffixed_domains:
+            result_rules["rules"].append({
+                "domain_suffix": list(set(suffixed_domains))
+            })
+
+    else:
+        if cleaned_addresses:
+            result_rules["rules"].append({
+                pattern: list(set(cleaned_addresses))
+            })
         # 删除 'domain_entries' 中的重复值
         domain_entries = list(set(domain_entries))
         if domain_entries:
