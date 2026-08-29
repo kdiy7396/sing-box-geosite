@@ -5,6 +5,9 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,6 +15,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,11 +48,13 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
+          # 强制把 rule 目录下的所有更改/新增文件添加进 git
           git add rule/*.srs
           
-          if ! git diff --cached --quiet; then
+          # 判断是否有更新
+          if git status --porcelain | grep -q .; then
             git commit -m "auto: restore/update rule sets $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-            git push
+            git push origin main
             echo "Rules updated and pushed successfully."
           else
             echo "No changes detected in rule binary output."
