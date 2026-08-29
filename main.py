@@ -20,7 +20,6 @@ HEADERS = {
 
 
 def setup_dirs():
-    # 强制清理临时文件夹
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR)
     os.makedirs(RULE_DIR, exist_ok=True)
@@ -30,7 +29,6 @@ def setup_dirs():
 def fetch_content(url):
     sep = "&" if "?" in url else "?"
     fresh_url = f"{url}{sep}_t={int(time.time())}"
-
     for attempt in range(3):
         try:
             resp = requests.get(fresh_url, headers=HEADERS, timeout=20)
@@ -52,36 +50,54 @@ def is_cidr(s):
         return False
 
 
-def parse_to_singbox_json(content):
+def compile_srs(json_path, srs_path, label):
+    cmd = ["sing-box", "rule-set", "compile", json_path, "-o", srs_path]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0:
+            print(f"  [Success] Compiled: {os.path.basename(srs_path)}")
+            return True
+        print(f"  [Error] sing-box compile failed for {label}: {res.stderr.strip()}")
+        return False
+    except Exception as e:
+        print(f"  [Exception] Failed to run sing-box for {label}: {e}")
+        return False
+
+
+def handle_direct_json(rule_name, raw_content):
+    """
+    需求1：源本身即合法 sing-box JSON -> 不做任何字段提取/拆分/排序，
+    原样落盘并直接编译成 srs，文件命名不变。
+    """
+    final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
+    temp_json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
+    srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
+
+    # 直接写入原始抓取内容，保证与源文件一致（“同步输出原json文件”）
+    with open(final_json_path, "w", encoding="utf-8") as f:
+        f.write(raw_content)
+    with open(temp_json_path, "w", encoding="utf-8") as f:
+        f.write(raw_content)
+
+    return compile_srs(temp_json_path, srs_path, rule_name)
+
+
+def parse_to_singbox_json_split(content):
+    """
+    需求2：把非 sing-box-JSON 格式的源（Clash/Surge/mosdns 纯文本等）解析后，
+    按类型拆分为 domain 类 JSON 和 ip_cidr 类 JSON。
+    """
     content_str = content.strip()
-
-    # 1. 已经是合法 JSON 格式
-    if content_str.startswith("{"):
-        try:
-            data = json.loads(content_str)
-            if "version" not in data:
-                data["version"] = 1
-            if "rules" in data or "version" in data:
-                return data
-        except Exception:
-            pass
-
-    # 2. 文本/Clash/Rule 格式解析转换
-    domain_list = []
-    domain_suffix_list = []
-    domain_keyword_list = []
-    domain_regex_list = []
+    domain_list, domain_suffix_list = [], []
+    domain_keyword_list, domain_regex_list = [], []
     ip_cidr_list = []
 
     for line in content_str.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or line.startswith("//") or line.startswith("payload:"):
             continue
-
-        # 清理多余符号
         line = re.sub(r"^[-'\"]+\s*", "", line).rstrip("',\"")
 
-        # 2.1 Clash / Surge 逗号分隔格式处理
         if "," in line:
             parts = [p.strip() for p in line.split(",")]
             rule_type = parts[0].upper()
@@ -99,7 +115,6 @@ def parse_to_singbox_json(content):
                     ip_cidr_list.append(target)
             continue
 
-        # 2.2 单行文本格式处理 (mosdns / v2ray txt)
         if line.startswith("full:"):
             domain_list.append(line[5:])
         elif line.startswith("domain:"):
@@ -117,23 +132,25 @@ def parse_to_singbox_json(content):
         else:
             domain_suffix_list.append(line)
 
-    # 3. 组装 sing-box JSON 结构
-    rule_item = {}
-    if domain_list:
-        rule_item["domain"] = sorted(list(set(domain_list)))
-    if domain_suffix_list:
-        rule_item["domain_suffix"] = sorted(list(set(domain_suffix_list)))
-    if domain_keyword_list:
-        rule_item["domain_keyword"] = sorted(list(set(domain_keyword_list)))
-    if domain_regex_list:
-        rule_item["domain_regex"] = sorted(list(set(domain_regex_list)))
-    if ip_cidr_list:
-        rule_item["ip_cidr"] = sorted(list(set(ip_cidr_list)))
+    domain_list = sorted(set(domain_list))
+    domain_suffix_list = sorted(set(domain_suffix_list))
+    domain_keyword_list = sorted(set(domain_keyword_list))
+    domain_regex_list = sorted(set(domain_regex_list))
+    ip_cidr_list = sorted(set(ip_cidr_list))
 
-    return {
-        "version": 1,
-        "rules": [rule_item] if rule_item else []
-    }
+    domain_rule = {}
+    if domain_list:
+        domain_rule["domain"] = domain_list
+    if domain_suffix_list:
+        domain_rule["domain_suffix"] = domain_suffix_list
+    if domain_keyword_list:
+        domain_rule["domain_keyword"] = domain_keyword_list
+    if domain_regex_list:
+        domain_rule["domain_regex"] = domain_regex_list
+
+    domain_json_data = {"version": 1, "rules": [domain_rule]} if domain_rule else None
+    ip_json_data = {"version": 1, "rules": [{"ip_cidr": ip_cidr_list}]} if ip_cidr_list else None
+    return domain_json_data, ip_json_data
 
 
 def compile_rule(rule_name, json_data):
@@ -141,27 +158,17 @@ def compile_rule(rule_name, json_data):
     final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
 
-    # 1. 写入 rule 目录下的最终 .json 文件
     with open(final_json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-    # 2. 写入 temp 目录用于编译
     with open(temp_json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-    # 3. 编译生成 .srs 文件
-    cmd = ["sing-box", "rule-set", "compile", temp_json_path, "-o", srs_path]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0:
-            print(f"[Success] Compiled: {rule_name}.srs & {rule_name}.json")
-            return True
-        else:
-            print(f"[Error] sing-box compile failed for {rule_name}: {res.stderr.strip()}")
-            return False
-    except Exception as e:
-        print(f"[Exception] Failed to run sing-box for {rule_name}: {e}")
-        return False
+    return compile_srs(temp_json_path, srs_path, rule_name)
+
+
+def derive_rule_name(url):
+    base = url.rstrip("/").split("/")[-1]
+    return re.sub(r"\.(ya?ml|list|txt|conf|json)$", "", base, flags=re.IGNORECASE)
 
 
 def process_links():
@@ -184,8 +191,7 @@ def process_links():
             rule_name, url = (p.strip() for p in line.split(",", 1))
         else:
             url = line
-            base = url.rstrip("/").split("/")[-1]
-            rule_name = re.sub(r"\.(ya?ml|list|txt|conf)$", "", base, flags=re.IGNORECASE)
+            rule_name = derive_rule_name(url)
 
         if not rule_name or not url:
             print(f"[Skip] Invalid line: {line}")
@@ -199,17 +205,34 @@ def process_links():
             continue
 
         try:
-            json_data = parse_to_singbox_json(content)
-            if compile_rule(rule_name, json_data):
+            # 需求1：优先判定是否已是 sing-box JSON，是则直通，不再拆分
+            if try_parse_as_singbox_json(content) is not None:
+                if handle_direct_json(rule_name, content):
+                    success_count += 1
+                else:
+                    fail_count += 1
+                continue
+
+            # 需求2：其余格式统一解析后按 domain / ip_cidr 拆分输出
+            domain_json, ip_json = parse_to_singbox_json_split(content)
+            processed_any = False
+
+            if domain_json and compile_rule(rule_name, domain_json):
+                processed_any = True
+            if ip_json and compile_rule(f"{rule_name}-ip", ip_json):
+                processed_any = True
+
+            if processed_any:
                 success_count += 1
             else:
+                print(f"  [Warning] No valid rules found in {rule_name}")
                 fail_count += 1
+
         except Exception as e:
             print(f"[Error] Exception in parsing {rule_name}: {e}")
             fail_count += 1
 
     print(f"\nFinished processing. Success: {success_count}, Failed: {fail_count}")
-
     if success_count == 0:
         print("[Fatal] 没有任何规则被成功编译，判定本次同步失败。")
         sys.exit(1)
