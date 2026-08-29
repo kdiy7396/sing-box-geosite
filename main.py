@@ -50,6 +50,24 @@ def is_cidr(s):
         return False
 
 
+def try_parse_as_singbox_json(content):
+    """
+    需求1：判定源内容是否本身就已经是 sing-box 规则集 JSON。
+    只有合法 JSON 且带有 'rules' 字段才视为"已是目标格式"，
+    交给直通分支处理；否则返回 None，走需求2的解析拆分逻辑。
+    """
+    stripped = content.lstrip("\ufeff").strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except Exception:
+        return None
+    if isinstance(data, dict) and "rules" in data:
+        return data
+    return None
+
+
 def compile_srs(json_path, srs_path, label):
     cmd = ["sing-box", "rule-set", "compile", json_path, "-o", srs_path]
     try:
@@ -62,6 +80,24 @@ def compile_srs(json_path, srs_path, label):
     except Exception as e:
         print(f"  [Exception] Failed to run sing-box for {label}: {e}")
         return False
+
+
+def handle_direct_json(rule_name, raw_content):
+    """
+    需求1：源本身即合法 sing-box JSON -> 不做任何字段提取/拆分/排序，
+    原样落盘并直接编译成 srs，文件命名不变。
+    """
+    final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
+    temp_json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
+    srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
+
+    # 直接写入原始抓取内容，保证与源文件一致（“同步输出原json文件”）
+    with open(final_json_path, "w", encoding="utf-8") as f:
+        f.write(raw_content)
+    with open(temp_json_path, "w", encoding="utf-8") as f:
+        f.write(raw_content)
+
+    return compile_srs(temp_json_path, srs_path, rule_name)
 
 
 def parse_to_singbox_json_split(content):
@@ -185,6 +221,15 @@ def process_links():
             print(f"[Skip] Failed to fetch content for {rule_name}")
             fail_count += 1
             continue
+
+        try:
+            # 需求1：优先判定是否已是 sing-box JSON，是则直通，不再拆分
+            if try_parse_as_singbox_json(content) is not None:
+                if handle_direct_json(rule_name, content):
+                    success_count += 1
+                else:
+                    fail_count += 1
+                continue
 
             # 需求2：其余格式统一解析后按 domain / ip_cidr 拆分输出
             domain_json, ip_json = parse_to_singbox_json_split(content)
