@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "rules": [
     {
-      "domain": [
+      "domain_suffix": [
         "action.weixin.qq.com",
         "ads.chinaums.com",
         "adsmind.gdtimg.com",
