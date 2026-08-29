@@ -2,9 +2,8 @@ name: Daily Sync and Compile Rules
 
 on:
   schedule:
-    # 北京时间每天上午 08:00 自动触发
     - cron: '0 0 * * *'
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -32,7 +31,6 @@ jobs:
           curl -LO "https://github.com/SagerNet/sing-box/releases/download/${TAG}/sing-box-${VERSION}-linux-amd64.tar.gz"
           tar -xzf "sing-box-${VERSION}-linux-amd64.tar.gz"
           sudo mv "sing-box-${VERSION}-linux-amd64/sing-box" /usr/local/bin/
-          # 清理解压出来的临时文件，防止污染 git 工作区
           rm -rf "sing-box-${VERSION}-linux-amd64.tar.gz" "sing-box-${VERSION}-linux-amd64"
           sing-box version
 
@@ -45,10 +43,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 仅暂存 rule 目录下的 srs 文件
           git add rule/*.srs
           
-          # 判断 rule 目录下是否有已暂存的变动
           if ! git diff --cached --quiet; then
             git commit -m "auto: restore/update rule sets $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
             git push
