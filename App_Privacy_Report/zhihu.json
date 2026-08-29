@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "rules": [
     {
-      "domain": [
+      "domain_suffix": [
         "abtest.volceapplog.com",
         "amp-api-edge.apps.apple.com",
         "api.meishesdk.com",
