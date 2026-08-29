@@ -1,81 +1,55 @@
-name: Config Update
+name: Daily Sync and Compile Rules
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
   schedule:
-    - cron: '0 12 * * *'
+    # 北京时间每天上午 08:00 自动触发运行
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 支持在 GitHub 页面手动点击触发
 
-permissions:
-  contents: write
-  
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
-          
-    - name: "Setup sing-box"
-      run: |
-          curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest > release_info.json
-          LATEST_URL=$(jq -r '.assets[] | select(.name | contains("linux-amd64.tar.gz")) | .browser_download_url' release_info.json | head -n 1)
-          echo "Downloading from: $LATEST_URL"
-          curl -Lo sing-box.tar.gz "$LATEST_URL"
-          tar -xzf sing-box.tar.gz
-          sudo mv sing-box-*/sing-box /usr/local/bin/
-          rm release_info.json sing-box.tar.gz
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Install Latest sing-box CLI
+        run: |
+          TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
+          VERSION=${TAG#v}
+          echo "Installing sing-box version $VERSION"
+          curl -LO "https://github.com/SagerNet/sing-box/releases/download/${TAG}/sing-box-${VERSION}-linux-amd64.tar.gz"
+          tar -xzf "sing-box-${VERSION}-linux-amd64.tar.gz"
+          sudo mv "sing-box-${VERSION}-linux-amd64/sing-box" /usr/local/bin/
           sing-box version
+
+      - name: Run Main Script & Force Compile Rules
+        run: |
+          python main.py
+
+      - name: Commit and Push Updated Rules
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-    - name: Set up Python3
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.x
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pandas requests pyyaml
-        
-    - name: Download content
-      run: |
-        URL="https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt"
-        OUTPUT_FILE="./rule/adservers.txt"
-
-        curl -L $URL -o $OUTPUT_FILE
-
-        if [ -f "$OUTPUT_FILE" ]; then
-          echo "Download successful: $OUTPUT_FILE"
-        else
-          echo "Download failed."
-          exit 1
-        fi
-        
-    - name: Convert AdGuard DNS Filter to sing-box rule set
-      run: |
-        sing-box rule-set convert --type adguard --output ./rule/adservers.srs ./rule/adservers.txt
-        
-    - name: Run script
-      run:  python ../main.py
-      working-directory: ./rule/
-      
-    - name: Git Commit and Push
-      run: |
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global user.name "github-actions[bot]"
-        
-        # 1. 强制添加所有目标文件
-        git add -A rule/
-        
-        # 2. 检查是否有文件在暂存区（包括内容改变或二进制重写）
-        # git status --porcelain 只要有任何不同（包括时间戳导致的二进制差异）都会输出内容
-        if [ -n "$(git status --porcelain rule/)" ]; then
-          echo "Changes detected in rule folder. Updating..."
-          git commit -m "auto: restore/update rule sets $(date +'%Y-%m-%d %H:%M')"
-          git push origin main
-        else
-          echo "Everything is up to date."
-        fi
+          git add rule/*.srs
+          
+          # 检查是否有文件更新，若有则 commit
+          if git status --porcelain | grep -q .; then
+            git commit -m "auto: update rulesets $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            git push
+            echo "Rules updated and pushed successfully."
+          else
+            echo "No changes detected in rule binary output."
+          fi
