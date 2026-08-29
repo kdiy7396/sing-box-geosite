@@ -8,7 +8,20 @@ import yaml
 import ipaddress
 import datetime
 from io import StringIO
+import shutil
 
+def clean_temp_dirs():
+    # 假设脚本使用的临时解压或存储目录为 temp_rules 或 rules
+    temp_dirs = ['./temp', './rules_cache']
+    for d in temp_dirs:
+        if os.path.exists(d):
+            shutil.rmtree(d)
+            print(f"已清理旧缓存目录: {d}")
+
+# 在程序入口处调用
+if __name__ == '__main__':
+    clean_temp_dirs()
+    
 MAP_DICT = {
     'DOMAIN-SUFFIX': 'domain_suffix', 'HOST-SUFFIX': 'domain_suffix', 'host-suffix': 'domain_suffix',
     'DOMAIN': 'domain', 'HOST': 'domain', 'host': 'domain',
@@ -28,7 +41,12 @@ def is_ipv4_or_ipv6(address):
         return False
 
 def fetch_url(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+    'User-Agent': 'Mozilla/5.0',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+}
     try:
         response = requests.get(url, headers=headers, timeout=20)
         response.raise_for_status()
