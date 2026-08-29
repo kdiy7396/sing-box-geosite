@@ -1,28 +1,19 @@
 {
+  "version": 1,
   "rules": [
     {
       "domain": [
-        "bintray.com",
-        "graph.facebook.com",
-        "whatsapp.biz",
-        "whatsapp.com",
-        "whatsapp.net"
-      ]
-    },
-    {
+        "graph.facebook.com"
+      ],
       "domain_suffix": [
         "bintray.com",
         "whatsapp.biz",
         "whatsapp.com",
         "whatsapp.net"
-      ]
-    },
-    {
+      ],
       "domain_keyword": [
         "whatsapp"
-      ]
-    },
-    {
+      ],
       "ip_cidr": [
         "158.85.224.160/27",
         "158.85.46.128/27",
@@ -37,6 +28,5 @@
         "54.242.0.0/15"
       ]
     }
-  ],
-  "version": 3
+  ]
 }
