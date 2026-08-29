@@ -1,0 +1,38 @@
+name: Monthly Clean Expired Rules
+
+on:
+  schedule:
+    # 定时任务触发（UTC 时间）
+    # 每月 1 号的 UTC 22:00 运行（对应北京时间每月 1 号的早晨 06:00）
+    # 保证早于 sync.yml 的触发时间（如 sync.yml 设置在 UTC 00:00 / 北京时间 08:00）
+    - cron: '0 22 28-31 * *' 
+  workflow_dispatch: # 支持在 GitHub 页面手动点击触发
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run Clean Script
+        run: |
+          python clean_old_rules.py
+
+      - name: Commit and Push Clean Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # 添加变更并自动追踪已被脚本删除的文件 (git add -A)
+          git add -A rule/
+          if git diff --staged --quiet; then
+            echo "No expired files found to clean."
+          else
+            git commit -m "Auto clean expired rule-sets (> 30 days) [$(date +'%Y-%m-%d')]"
+            git push
+          fi
