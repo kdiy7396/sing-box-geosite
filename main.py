@@ -137,20 +137,24 @@ def parse_to_singbox_json(content):
 
 
 def compile_rule(rule_name, json_data):
-    json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
+    temp_json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
+    final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
 
-    # 写入 JSON 文件
+    # 1. 写入 rule 目录下的最终 .json 文件
     with open(final_json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
-    with open(json_path, "w", encoding="utf-8") as f:
+
+    # 2. 写入 temp 目录用于编译
+    with open(temp_json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-    cmd = ["sing-box", "rule-set", "compile", json_path, "-o", srs_path]
+    # 3. 编译生成 .srs 文件
+    cmd = ["sing-box", "rule-set", "compile", temp_json_path, "-o", srs_path]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0:
-            print(f"[Success] Compiled: {rule_name}.srs & {rule_name}.json"")
+            print(f"[Success] Compiled: {rule_name}.srs & {rule_name}.json")
             return True
         else:
             print(f"[Error] sing-box compile failed for {rule_name}: {res.stderr.strip()}")
