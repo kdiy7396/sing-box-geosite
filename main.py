@@ -1,15 +1,14 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 import requests
 
-# 定义目录
 RULE_DIR = "rule"
 TEMP_DIR = "temp"
 
-# HTTP 请求头（防缓存）
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -24,7 +23,6 @@ def setup_dirs():
 
 
 def fetch_content(url):
-    """带防缓存机制与重试的下载函数"""
     sep = "&" if "?" in url else "?"
     fresh_url = f"{url}{sep}_t={int(time.time())}"
 
@@ -39,16 +37,89 @@ def fetch_content(url):
     return None
 
 
+def parse_to_singbox_json(content):
+    """
+    将非 JSON 格式的规则文本（纯域名列表/Clash payload/规则文件）解析为 sing-box 规范 JSON
+    """
+    content_str = content.strip()
+
+    # 1. 如果本身就是合法的 JSON 格式
+    if content_str.startswith("{"):
+        try:
+            data = json.loads(content_str)
+            if "rules" in data:
+                return data
+        except Exception:
+            pass
+
+    # 2. 如果是纯文本/Clash 格式规则，逐行提取域名
+    domain_list = []
+    domain_suffix_list = []
+    domain_keyword_list = []
+    domain_regex_list = []
+
+    for line in content_str.splitlines():
+        line = line.strip()
+        # 忽略注释和空行、YAML 语法头
+        if not line or line.startswith("#") or line.startswith("//") or line.startswith("payload:"):
+            continue
+
+        # 兼容 Clash/V2Ray 格式前缀，如 "- DOMAIN-SUFFIX,google.com" 或 "domain:google.com"
+        line = re.sub(r"^[-'\"]+\s*", "", line).rstrip("',\"")
+        
+        if "," in line:
+            parts = [p.strip() for p in line.split(",")]
+            rule_type = parts[0].upper()
+            target = parts[1] if len(parts) > 1 else ""
+            if rule_type in ["DOMAIN-SUFFIX", "HOST-SUFFIX"]:
+                domain_suffix_list.append(target)
+            elif rule_type in ["DOMAIN", "HOST"]:
+                domain_list.append(target)
+            elif rule_type in ["DOMAIN-KEYWORD", "HOST-KEYWORD"]:
+                domain_keyword_list.append(target)
+            elif rule_type in ["DOMAIN-REGEX", "HOST-REGEX"]:
+                domain_regex_list.append(target)
+            continue
+
+        if line.startswith("full:"):
+            domain_list.append(line[5:])
+        elif line.startswith("domain:"):
+            domain_suffix_list.append(line[7:])
+        elif line.startswith("keyword:"):
+            domain_keyword_list.append(line[8:])
+        elif line.startswith("regexp:"):
+            domain_regex_list.append(line[7:])
+        elif line.startswith("+."):
+            domain_suffix_list.append(line[2:])
+        elif line.startswith("."):
+            domain_suffix_list.append(line[1:])
+        else:
+            # 默认作为 domain_suffix 匹配
+            domain_suffix_list.append(line)
+
+    rule_item = {}
+    if domain_list:
+        rule_item["domain"] = list(set(domain_list))
+    if domain_suffix_list:
+        rule_item["domain_suffix"] = list(set(domain_suffix_list))
+    if domain_keyword_list:
+        rule_item["domain_keyword"] = list(set(domain_keyword_list))
+    if domain_regex_list:
+        rule_item["domain_regex"] = list(set(domain_regex_list))
+
+    return {
+        "version": 1,
+        "rules": [rule_item] if rule_item else []
+    }
+
+
 def compile_rule(rule_name, json_data):
-    """将 JSON 规则强行编译为 sing-box .srs 文件"""
     json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
 
-    # 写入临时 JSON
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-    # 调用 sing-box 编译规则集
     cmd = ["sing-box", "rule-set", "compile", json_path, "-o", srs_path]
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -87,35 +158,13 @@ def process_links():
             print(f"[Skip] Could not retrieve content for {rule_name}")
             continue
 
-        # 解析规则内容（支持 plain text 域名列表 & 现有 JSON 格式）
         try:
-            if content.strip().startswith("{"):
-                # 原生 json 格式
-                json_data = json.loads(content)
-            else:
-                # 文本域名列表转 sing-box domain_suffix 格式
-                domains = []
-                for domain_line in content.splitlines():
-                    domain_line = domain_line.strip()
-                    if domain_line and not domain_line.startswith("#"):
-                        domains.append(domain_line)
-
-                json_data = {
-                    "version": 1,
-                    "rules": [
-                        {
-                            "domain_suffix": domains
-                        }
-                    ]
-                }
-
-            # 在规则元数据中插入构建时间戳，保证二进制文件改变，强制 git 提交更新
+            json_data = parse_to_singbox_json(content)
+            # 写入时间戳确保生成的 .srs md5 变更，触发 git push
             json_data["_build_info"] = f"Updated at {timestamp}"
-
             compile_rule(rule_name, json_data)
-
         except Exception as e:
-            print(f"[Error] Failed to parse rule {rule_name}: {e}")
+            print(f"[Error] Failed to parse/compile rule {rule_name}: {e}")
 
 
 if __name__ == "__main__":
