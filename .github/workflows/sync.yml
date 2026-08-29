@@ -50,6 +50,7 @@ jobs:
           
           # 强制把 rule 目录下的所有更改/新增文件添加进 git
           git add rule/*.srs
+          git add rule/*.json
           
           # 判断是否有更新
           if git status --porcelain | grep -q .; then
