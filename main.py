@@ -64,24 +64,6 @@ def compile_srs(json_path, srs_path, label):
         return False
 
 
-def handle_direct_json(rule_name, raw_content):
-    """
-    需求1：源本身即合法 sing-box JSON -> 不做任何字段提取/拆分/排序，
-    原样落盘并直接编译成 srs，文件命名不变。
-    """
-    final_json_path = os.path.join(RULE_DIR, f"{rule_name}.json")
-    temp_json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
-    srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
-
-    # 直接写入原始抓取内容，保证与源文件一致（“同步输出原json文件”）
-    with open(final_json_path, "w", encoding="utf-8") as f:
-        f.write(raw_content)
-    with open(temp_json_path, "w", encoding="utf-8") as f:
-        f.write(raw_content)
-
-    return compile_srs(temp_json_path, srs_path, rule_name)
-
-
 def parse_to_singbox_json_split(content):
     """
     需求2：把非 sing-box-JSON 格式的源（Clash/Surge/mosdns 纯文本等）解析后，
@@ -203,15 +185,6 @@ def process_links():
             print(f"[Skip] Failed to fetch content for {rule_name}")
             fail_count += 1
             continue
-
-        try:
-            # 需求1：优先判定是否已是 sing-box JSON，是则直通，不再拆分
-            if try_parse_as_singbox_json(content) is not None:
-                if handle_direct_json(rule_name, content):
-                    success_count += 1
-                else:
-                    fail_count += 1
-                continue
 
             # 需求2：其余格式统一解析后按 domain / ip_cidr 拆分输出
             domain_json, ip_json = parse_to_singbox_json_split(content)
