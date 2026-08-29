@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import requests
+import ipaddress
 
 RULE_DIR = "rule"
 TEMP_DIR = "temp"
@@ -61,6 +62,7 @@ def parse_to_singbox_json(content):
     domain_suffix_list = []
     domain_keyword_list = []
     domain_regex_list = []
+    ip_cidr_list = []
 
     for line in content_str.splitlines():
         line = line.strip()
@@ -82,8 +84,17 @@ def parse_to_singbox_json(content):
                     domain_keyword_list.append(target)
                 elif rule_type in ["DOMAIN-REGEX", "HOST-REGEX"]:
                     domain_regex_list.append(target)
+                elif rule_type in ["IP-CIDR", "IP6-CIDR", "IP-CIDR6"]:
+                    ip_cidr_list.append(target)
             continue
-
+            
+def is_cidr(s):
+    try:
+        ipaddress.ip_network(s, strict=False)
+        return True
+    except ValueError:
+        return False
+        
         if line.startswith("full:"):
             domain_list.append(line[5:])
         elif line.startswith("domain:"):
@@ -96,6 +107,8 @@ def parse_to_singbox_json(content):
             domain_suffix_list.append(line[2:])
         elif line.startswith("."):
             domain_suffix_list.append(line[1:])
+        elif is_cidr(line):
+            ip_cidr_list.append(line)
         else:
             domain_suffix_list.append(line)
 
@@ -108,6 +121,8 @@ def parse_to_singbox_json(content):
         rule_item["domain_keyword"] = sorted(list(set(domain_keyword_list)))
     if domain_regex_list:
         rule_item["domain_regex"] = sorted(list(set(domain_regex_list)))
+    if ip_cidr_list:
+        rule_item["ip_cidr"] = sorted(list(set(ip_cidr_list)))
 
     return {
         "version": 1,
@@ -153,12 +168,20 @@ def process_links():
         if not line or line.startswith("#"):
             continue
 
-        parts = line.split(",", 1)
-        if len(parts) < 2:
-            continue
+        # 支持两种写法：
+        # 1) 纯 URL：  https://xxx/xxx/BiliBili.yaml
+        # 2) 带别名：  自定义名,https://xxx/xxx/BiliBili.yaml
+        if "," in line and line.split(",", 1)[1].strip().startswith(("http://", "https://")):
+            rule_name, url = (p.strip() for p in line.split(",", 1))
+        else:
+            url = line
+            # 从 URL 最后一段文件名去掉扩展名，作为规则名
+            base = url.rstrip("/").split("/")[-1]
+            rule_name = re.sub(r"\.(ya?ml|list|txt|conf)$", "", base, flags=re.IGNORECASE)
 
-        rule_name = parts[0].strip()
-        url = parts[1].strip()
+        if not rule_name or not url:
+            print(f"[Skip] Invalid line: {line}")
+            continue
 
         print(f"\n[Processing] {rule_name} from {url}")
         content = fetch_content(url)
@@ -178,6 +201,12 @@ def process_links():
             fail_count += 1
 
     print(f"\nFinished processing. Success: {success_count}, Failed: {fail_count}")
+
+    # 关键补充：全部失败/一个没处理时让脚本非零退出，
+    # 避免"跑完了但其实什么都没干"被 workflow 判定为成功
+    if success_count == 0:
+        print("[Fatal] 没有任何规则被成功编译，判定本次同步失败。")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
