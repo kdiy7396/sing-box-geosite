@@ -44,6 +44,14 @@ def fetch_content(url):
     return None
 
 
+def is_cidr(s):
+    try:
+        ipaddress.ip_network(s, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
 def parse_to_singbox_json(content):
     content_str = content.strip()
 
@@ -51,13 +59,14 @@ def parse_to_singbox_json(content):
     if content_str.startswith("{"):
         try:
             data = json.loads(content_str)
-            # 必须包含 rules 或 domain 节点
+            if "version" not in data:
+                data["version"] = 1
             if "rules" in data or "version" in data:
                 return data
         except Exception:
             pass
 
-    # 2. 文本/Clash/Rule 格式转换
+    # 2. 文本/Clash/Rule 格式解析转换
     domain_list = []
     domain_suffix_list = []
     domain_keyword_list = []
@@ -69,8 +78,10 @@ def parse_to_singbox_json(content):
         if not line or line.startswith("#") or line.startswith("//") or line.startswith("payload:"):
             continue
 
+        # 清理多余符号
         line = re.sub(r"^[-'\"]+\s*", "", line).rstrip("',\"")
 
+        # 2.1 Clash / Surge 逗号分隔格式处理
         if "," in line:
             parts = [p.strip() for p in line.split(",")]
             rule_type = parts[0].upper()
@@ -87,14 +98,8 @@ def parse_to_singbox_json(content):
                 elif rule_type in ["IP-CIDR", "IP6-CIDR", "IP-CIDR6"]:
                     ip_cidr_list.append(target)
             continue
-            
-def is_cidr(s):
-    try:
-        ipaddress.ip_network(s, strict=False)
-        return True
-    except ValueError:
-        return False
-        
+
+        # 2.2 单行文本格式处理 (mosdns / v2ray txt)
         if line.startswith("full:"):
             domain_list.append(line[5:])
         elif line.startswith("domain:"):
@@ -112,6 +117,7 @@ def is_cidr(s):
         else:
             domain_suffix_list.append(line)
 
+    # 3. 组装 sing-box JSON 结构
     rule_item = {}
     if domain_list:
         rule_item["domain"] = sorted(list(set(domain_list)))
@@ -134,7 +140,7 @@ def compile_rule(rule_name, json_data):
     json_path = os.path.join(TEMP_DIR, f"{rule_name}.json")
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
 
-    # 写入严格规范的 JSON 文件
+    # 写入 JSON 文件
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
@@ -168,14 +174,10 @@ def process_links():
         if not line or line.startswith("#"):
             continue
 
-        # 支持两种写法：
-        # 1) 纯 URL：  https://xxx/xxx/BiliBili.yaml
-        # 2) 带别名：  自定义名,https://xxx/xxx/BiliBili.yaml
         if "," in line and line.split(",", 1)[1].strip().startswith(("http://", "https://")):
             rule_name, url = (p.strip() for p in line.split(",", 1))
         else:
             url = line
-            # 从 URL 最后一段文件名去掉扩展名，作为规则名
             base = url.rstrip("/").split("/")[-1]
             rule_name = re.sub(r"\.(ya?ml|list|txt|conf)$", "", base, flags=re.IGNORECASE)
 
@@ -202,8 +204,6 @@ def process_links():
 
     print(f"\nFinished processing. Success: {success_count}, Failed: {fail_count}")
 
-    # 关键补充：全部失败/一个没处理时让脚本非零退出，
-    # 避免"跑完了但其实什么都没干"被 workflow 判定为成功
     if success_count == 0:
         print("[Fatal] 没有任何规则被成功编译，判定本次同步失败。")
         sys.exit(1)
