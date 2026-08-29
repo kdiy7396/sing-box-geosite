@@ -1,1 +1,46 @@
+name: Split Mixed Rules (Domain & IP)
 
+on:
+  workflow_dispatch: # 支持在 GitHub Actions 页面手动点击运行
+  # 如果需要定时自动运行（例如每周日早晨 04:00 运行），可以取消下面两行的注释：
+  # schedule:
+  #   - cron: '0 20 * * 0'
+
+jobs:
+  split-rules:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Sing-box
+        run: |
+          # 自动获取并安装最新版本的 sing-box
+          SING_BOX_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name | sed 's/v//')
+          wget "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          tar -zxvf "sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          sudo mv "sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" /usr/local/bin/
+          sing-box version
+
+      - name: Run Split Mixed Rules Script
+        run: |
+          python split_mixed_rules.py
+
+      - name: Commit and Push Split Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # 自动追踪新增的 -ip 文件以及修改后的域名规则文件
+          git add -A rule/
+          if git diff --staged --quiet; then
+            echo "No mixed rules required splitting."
+          else
+            git commit -m "Auto split mixed domain and IP rules [$(date +'%Y-%m-%d %H:%M:%S')]"
+            git push
+          fi
