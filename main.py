@@ -141,6 +141,8 @@ def compile_rule(rule_name, json_data):
     srs_path = os.path.join(RULE_DIR, f"{rule_name}.srs")
 
     # 写入 JSON 文件
+    with open(final_json_path, "w", encoding="utf-8") as f:
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
@@ -148,7 +150,7 @@ def compile_rule(rule_name, json_data):
     try:
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0:
-            print(f"[Success] Compiled: {rule_name}.srs")
+            print(f"[Success] Compiled: {rule_name}.srs & {rule_name}.json"")
             return True
         else:
             print(f"[Error] sing-box compile failed for {rule_name}: {res.stderr.strip()}")
