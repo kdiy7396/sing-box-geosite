@@ -1,0 +1,44 @@
+name: Process App Privacy Report Rules
+
+on:
+  workflow_dispatch: # 支持手动触发
+  push:
+    paths:
+      - 'App_Privacy_Report/*.json' # 当 App_Privacy_Report 目录下有 json 文件变动时自动触发
+
+jobs:
+  process-app-privacy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Sing-box
+        run: |
+          SING_BOX_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name | sed 's/v//')
+          wget "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          tar -zxvf "sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          sudo mv "sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" /usr/local/bin/
+          sing-box version
+
+      - name: Run App Privacy Report Processor
+        run: |
+          python process_app_privacy_report.py
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add App_Privacy_Report/
+          if git diff --staged --quiet; then
+            echo "No changes in App_Privacy_Report directory."
+          else
+            git commit -m "Process App_Privacy_Report rules (Version 2 & Split IP) [$(date +'%Y-%m-%d %H:%M:%S')]"
+            git push
+          fi
